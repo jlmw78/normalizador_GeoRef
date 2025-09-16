@@ -213,7 +213,11 @@ class direccGeoRef:
             return
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
-                lector = csv.reader(f)
+                sample = f.read(1024)  # Lee una muestra para detectar
+                f.seek(0)
+                dialect = csv.Sniffer().sniff(sample, delimiters=',;\t')
+                f.seek(0)
+                lector = csv.reader(f, dialect)
                 nombres_campos = next(lector)
         except Exception as e:
             self.iface.messageBar().pushWarning("Error CSV", f"No se pudo leer el archivo: {e}")
