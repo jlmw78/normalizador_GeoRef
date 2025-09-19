@@ -84,7 +84,11 @@ class Worker(QObject):
             lista_direcciones = []
             self.lista_original = []
             with open(self.ruta_csv, 'r', encoding='utf-8') as f:
-                lector = csv.DictReader(f)
+                sample = f.read(1024)
+                f.seek(0)
+# detecta automáticamente el delimitador y otros parámetros del CSV a partir de la muestra leída
+                dialect = csv.Sniffer().sniff(sample)
+                lector = csv.DictReader(f, dialect=dialect)
                 for fila in lector:
                     id_val = fila.get(self.campos['id'], "")
                     direcc_orig_val = fila.get(self.campos['direccion'], "")
@@ -205,6 +209,7 @@ class direccGeoRef:
             self.dlg.pushButton_4.clicked.connect(self.exportar_filtrados_4)
             self.dlg.pushButton_5.clicked.connect(self.exportar_filtrados_5)
             self.dlg.pushButton_6.clicked.connect(self.exportar_posible_geojson)
+            self.dlg.tabWidget.setCurrentIndex(0)
         self.dlg.show()
         self.dlg.exec_()
 
@@ -277,6 +282,7 @@ class direccGeoRef:
         self.worker.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
         self.thread.start()
+        self.dlg.tabWidget.setCurrentIndex(1)
 
 # Procesa la respuesta de la API para actualizar tabla con resultados
     def manejar_respuesta_api(self, texto_api):
@@ -289,6 +295,7 @@ class direccGeoRef:
         self.dialogo_espera.accept()
         self.dlg.label_8.setText(f"Tiempo empleado: {duracion:.2f} segundos")
         self.iface.messageBar().pushMessage(f"Proceso completado en {duracion:.2f} segundos", level=0, duration=5)
+        self.dlg.tabWidget.setCurrentIndex(2)
 
 # Oculta diálogo de espera e informa error ocurrido
     def proceso_error(self, mensaje):
@@ -314,26 +321,21 @@ class direccGeoRef:
         except Exception as e:
             self.iface.messageBar().pushWarning("Error JSON", f"No se pudo cargar el JSON en tabla: {e}")
             return
-
         modelo = QStandardItemModel()
         encabezados = ["Registro CSV", "id_csv", "direcc_csv", "Cantidad", "Provincia", "Departamento", "Localidad",
                       "calle_id", "Dirección", "Latitud", "Longitud", "Observaciones"]
         modelo.setHorizontalHeaderLabels(encabezados)
-
         resultados = data.get("resultados", [])
         for idx, resultado in enumerate(resultados):
             direcciones = resultado.get("direcciones", [])
             cantidad = resultado.get("cantidad", 0)
             numero_registro = idx + 1
-
             try:
                 registro_origen = self.lista_original[idx]
             except (IndexError, AttributeError):
                 registro_origen = {"id": "", "direcc_orig": "", "provincia": "", "departamento": "", "localidad": ""}
-
             id_csv = registro_origen.get("id", "")
             direcc_csv = registro_origen.get("direcc_orig", "")
-
             if not direcciones:
                 fila_valores = [
                     str(numero_registro),
@@ -347,7 +349,7 @@ class direccGeoRef:
                     "",
                     "",
                     "",
-                    ""  # Observaciones vacio por ahora
+                    ""  # Observaciones vacío por ahora
                 ]
                 modelo.appendRow(self.crear_items_fila_no_editable(fila_valores))
             else:
@@ -364,15 +366,40 @@ class direccGeoRef:
                         f"{direccion.get('calle_nombre', '')} {direccion.get('altura_valor', '')}".strip(),
                         str(direccion.get("ubicacion_lat", "")),
                         str(direccion.get("ubicacion_lon", "")),
-                        ""  # Observaciones vacio por ahora
+                        ""  # Observaciones vacío por ahora
                     ]
                     modelo.appendRow(self.crear_items_fila_no_editable(fila_valores))
-
         self.dlg.tableView_1.setModel(modelo)
         self.dlg.tableView_1.setItemDelegateForColumn(11, ObservacionesDelegate())
         self.dlg.tableView_1.resizeColumnsToContents()
+
         self.observaciones_cantidad_0y1(modelo)
         self.observaciones_cantidad_mayor_a_1(modelo)
+
+        # Conteo total registros CSV (lista_original)
+        total_registros = len(self.lista_original) if self.lista_original else 0
+
+        # Inicializar contadores para observaciones
+        conteo_posible = 0
+        conteo_a_evaluar = 0
+        conteo_no_encontrados = 0
+
+        for row in range(modelo.rowCount()):
+            observacion_idx = modelo.index(row, 11)
+            observacion = modelo.data(observacion_idx)
+            if observacion == 'posible':
+                conteo_posible += 1
+            elif observacion in ('a evaluar', 'evaluar-calle si-altura no'):
+                conteo_a_evaluar += 1
+            elif observacion == 'No encontrados':
+                conteo_no_encontrados += 1
+
+        # Actualizar labels con los conteos
+        self.dlg.label_13.setText("en archivo CSV: "+str(total_registros))
+        self.dlg.label_14.setText("registros posibles: "+str(conteo_posible))
+        self.dlg.label_15.setText("registros a evalua: "+str(conteo_a_evaluar))
+        self.dlg.label_16.setText("registros no encontrados: "+str(conteo_no_encontrados))
+
 
 # Asigna observaciones para filas con 0 o 1 resultado según reglas definidas (e.g. "No encontrados")
     def observaciones_cantidad_0y1(self, modelo):
@@ -392,7 +419,7 @@ class direccGeoRef:
                 observacion = "No encontrados"
             elif cantidad == 1:
                 if calle_id and not latitud_valida:
-                    observacion = "calle si - altura no"
+                    observacion = "evaluar-calle si-altura no"
                 else:
                     observacion = "posible"
             modelo.setItem(fila, 11, self.crear_item_no_editable(observacion))
