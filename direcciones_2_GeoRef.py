@@ -47,21 +47,22 @@ from .direcciones_2_GeoRef_dialog import direccGeoRefDialog
 
 # Clase para definir el color de fondo y texto según la observación en la tabla (columna 11)
 class ObservacionesDelegate(QStyledItemDelegate):
-    def initStyleOption(self, option, index):
-        super().initStyleOption(option, index)
-        if index.column() == 11:
-            valor = index.data()
-            color_map = {
-                'a descartar': QColor(255, 0, 0),
-                'posible': QColor(0, 255, 0),
-                'No encontrados': QColor(255, 165, 0),
-                'a evaluar': QColor(255, 255, 0),
-                'evaluar-calle si-altura no': QColor(135, 206, 250),
-            }
-            color = color_map.get(valor, None)
-            if color:
-                option.backgroundBrush = QBrush(color)
-                option.palette.setColor(option.palette.Text, Qt.black)
+    def paint(self, painter, option, index):
+        modelo = index.model()
+        valor = modelo.data(modelo.index(index.row(), 11))
+        color_map = {
+            'a descartar': QColor(255, 0, 0),
+            'posible': QColor(0, 255, 0),
+            'No encontrados': QColor(255, 165, 0),
+            'a evaluar': QColor(255, 255, 0),
+            'evaluar-calle si-altura no': QColor(135, 206, 250),
+        }
+        color = color_map.get(valor, None)
+        if color:
+            painter.save()
+            painter.fillRect(option.rect, color)
+            painter.restore()
+        super().paint(painter, option, index)
 
 # Clase que realiza la lectura y consulta a la API en segundo plano (hilo separado)
 class Worker(QObject):
@@ -371,6 +372,7 @@ class direccGeoRef:
                     modelo.appendRow(self.crear_items_fila_no_editable(fila_valores))
         self.dlg.tableView_1.setModel(modelo)
         self.dlg.tableView_1.setItemDelegateForColumn(11, ObservacionesDelegate())
+        self.dlg.tableView_1.setItemDelegate(ObservacionesDelegate())
         self.dlg.tableView_1.resizeColumnsToContents()
 
         self.observaciones_cantidad_0y1(modelo)
